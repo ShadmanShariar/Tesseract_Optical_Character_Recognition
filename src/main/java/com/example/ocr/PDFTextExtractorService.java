@@ -22,61 +22,38 @@ public class PDFTextExtractorService {
         StringBuilder result = new StringBuilder();
 
         try (PDDocument document = PDDocument.load(file)) {
-            // 1. Extract embedded text from PDF
+            int totalPages = document.getNumberOfPages();
+
             PDFTextStripper stripper = new PDFTextStripper();
-            String directText = stripper.getText(document).trim();
-
-            result.append("=== TEXT from PDF (Direct) ===\n");
-            if (!directText.isEmpty()) {
-                result.append(directText).append("\n\n");
-            } else {
-                result.append("[No embedded PDF text found]\n\n");
-            }
-
-            // 2. OCR setup
-            PDFRenderer pdfRenderer = new PDFRenderer(document);
             Tesseract tesseract = new Tesseract();
             tesseract.setDatapath(tessDataPath);
             tesseract.setLanguage("eng");
 
-            // Maximum accuracy: LSTM-only, automatic layout
-            tesseract.setOcrEngineMode(1); // OEM 1 = LSTM
-            tesseract.setPageSegMode(3);   // PSM 3 = fully automatic page segmentation
+            PDFRenderer renderer = new PDFRenderer(document);
 
-            result.append("=== OCR from Images ===\n");
+            for (int page = 0; page < totalPages; page++) {
+                // Process one page at a time to save memory
+                stripper.setStartPage(page + 1);
+                stripper.setEndPage(page + 1);
 
-            for (int page = 0; page < document.getNumberOfPages(); ++page) {
-                // Step 1: Render PDF page at 600 DPI
-                BufferedImage image = pdfRenderer.renderImageWithDPI(page, 600);
+                String pageText = stripper.getText(document).trim();
+                result.append("===== Page ").append(page + 1).append(" - Extracted Text =====\n");
+                result.append(pageText).append("\n");
 
-                // Step 2: Convert to grayscale
-                BufferedImage grayImage = new BufferedImage(
-                        image.getWidth(), image.getHeight(),
-                        BufferedImage.TYPE_BYTE_GRAY
-                );
-                grayImage.getGraphics().drawImage(image, 0, 0, null);
-
-                // Step 3: Apply binary thresholding (simple binarization)
-                BufferedImage binarized = new BufferedImage(
-                        grayImage.getWidth(), grayImage.getHeight(),
-                        BufferedImage.TYPE_BYTE_BINARY
-                );
-                binarized.getGraphics().drawImage(grayImage, 0, 0, null);
-
-                // Step 4: Run OCR
-                String ocrText = tesseract.doOCR(binarized);
-
-                result.append("Page ").append(page + 1).append(":\n")
-                        .append(ocrText).append("\n\n");
+                try {
+                    BufferedImage image = renderer.renderImageWithDPI(page, 300);
+                    String ocrText = tesseract.doOCR(image);
+                    result.append("===== Page ").append(page + 1).append(" - OCR Text =====\n");
+                    result.append(ocrText).append("\n\n");
+                } catch (TesseractException e) {
+                    result.append("OCR failed on page ").append(page + 1).append(": ").append(e.getMessage()).append("\n");
+                }
             }
-
-        } catch (TesseractException e) {
-            e.printStackTrace();
-            result.append("OCR failed: ").append(e.getMessage());
         }
 
         return result.toString();
     }
+
 
 
 }
